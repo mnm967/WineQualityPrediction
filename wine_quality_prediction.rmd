@@ -1,0 +1,179 @@
+---
+title: "Wine Quality Prediction"
+author: "By Mothuso Malunga"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+## Import Libraries & Data
+
+```{r cars}
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(glmnet)
+library(GGally)
+library(corrplot)
+library(factoextra)
+
+wine_data <- read.csv("data/winequality-red.csv")
+str(wine_data)
+```
+
+## Discussion of Data
+
+> The Wine Quality Dataset is a collection of red and white wines.
+
+> The dataset includes 11 input variables representing various chemical properties of the wines, such as acidity, pH, sugar content, and alcohol percentage.
+
+> The output variable is the quality rating of the wines, which is a score between 0 and 10.
+
+
+## Variables of Interest
+
+> In this study, our variables of interest are the 11 input variables (chemical properties) and the output variable (quality rating).
+
+
+## Research Question
+
+> Can we predict the quality rating of wines based on their chemical properties?
+
+
+## Data Wrangling
+
+```{r}
+# Remove any rows with missing data
+wine_data <- na.omit(wine_data)
+
+# Look at dimensions of the data
+dim(wine_data)
+
+# Obtain correlations
+correlations <- cor(wine_data)
+
+# Determine which variables have correlations greater than 0.90
+greater_than <- which(abs(correlations) >= 0.90, arr.ind = TRUE)
+
+# Remove duplicate relationships and diagonal (equal to 1)
+greater_than <- greater_than[greater_than[, "row"] < greater_than[, "col"], ]
+```
+
+## Visualization
+
+```{r pressure, echo=FALSE}
+# Plot correlation matrix
+corrplot(correlations, type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+```
+
+> It does not look like multicollinearity will be an issue.
+
+## Dimension Reduction
+
+```{r}
+pca <- prcomp(wine_data, scale. = TRUE)
+summary(pca)
+```
+
+> The first principal component explains 26% of the variance, the second explains 18% and the third explains 14%. The remaining principal components each explain less than 10% of the variance.
+
+## Visualize PCA
+
+```{r}
+# Produce 2-dimensional plot (contrib)
+fviz_pca_var(
+  pca,
+  col.var = "contrib", # Color by contributions to the PCA
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE #Avoid overlapping text if possible
+)
+
+# Produce 2-dimensional plot (point)
+fviz_pca_ind(
+  pca,
+  c = "point", # Observations
+  col.ind = "cos2", # Quality of representation
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = FALSE
+)
+
+# Produce 2-dimensional plot (biplot)
+fviz_pca_biplot(
+  pca, repel = TRUE,
+  col.var = "#FC4E07", # Variables color
+  col.ind = "#00AFBB", # Individuals color
+  label = "var" # Variables only
+)
+```
+
+## Linear Regression
+
+```{r}
+model <- lm(quality ~ ., data = wine_data)
+summary(model)
+
+# Residual plot, QQ Plot
+plot(model, which = c(1, 2))
+
+# Check multicolinearity
+library(car)
+vif(model)
+```
+
+> This model may not be the best for linear regression, given that the R squared of the linear regression is so low. Additionally, the Normal QQ graph shows a lot of outliers. However, based on the Residuals vs. Fitted graph, there does seem to be a linear relationship.
+
+
+## Remodel Data
+
+```{r}
+# Apply LASSO regularization
+lasso_model <- cv.glmnet(as.matrix(wine_data[, -12]), wine_data$quality, family = "gaussian")
+best_lambda <- lasso_model$lambda.min
+
+lasso_model <- glmnet(as.matrix(wine_data[, -12]), wine_data$quality, family = "gaussian", alpha = 1, lambda = best_lambda)
+lasso_model
+```
+
+## Evaluate Model
+
+```{r}
+set.seed(123)
+
+train_indices <- createDataPartition(wine_data$quality, p = 0.8, list = FALSE)
+train_data <- wine_data[train_indices, ]
+test_data <- wine_data[-train_indices, ]
+
+
+# Predict on the test data
+test_predictions <- predict(lasso_model, newx = as.matrix(test_data[, -12]))
+
+# Calculate R-squared
+test_r_squared <- cor(test_predictions, test_data$quality)^2
+test_r_squared
+
+# Calculate RMSE
+test_rmse <- sqrt(mean((test_predictions - test_data$quality)^2))
+test_rmse
+```
+
+> The lasso model still does not look like a good fit based on the R-squared value. Additionally, since the RMSE is 0.64, this indicates that the model is not very good.
+
+
+## Discussion of Findings
+
+> Based on this analysis conducted on the wine quality dataset, the answer to the research question is no. The linear regression model performed poorly in predicting the quality rating of wines. This finding was unexpected and suggests that a more comprehensive approach, incorporating non-chemical factors, should be considered when predicting wine quality.
+
+> I also conducted principal component analysis (PCA). The analysis revealed that the first few principal components explained a significant portion of the variance in the data, but the remaining components had relatively low contributions. This indicated that the chemical properties might not be strongly related to the quality rating.
+
+> The linear regression model had a low R-squared value, indicating that the model explains only a small portion of the variability in the quality ratings. Additionally, the residual plot and QQ plot showed the presence of outliers and departures from the assumption of normality, suggesting that the linear regression assumptions were violated.
+
+> Furthermore, the lasso regularization did not significantly improve the performance of the model. The R-squared value remained low, indicating that the model could not accurately capture the relationship between the chemical properties and the quality rating of wines.
+
+> These findings suggest that the chemical properties may not be sufficient to accurately predict the quality rating of wines. Other factors, such as sensory characteristics or winemaking techniques, may play a significant role in determining wine quality.
+
+> There are a few limitations to consider in our study. First, the sample size of the Wine Quality Dataset may not be representative of all wines, as it consists of red and white wines from a specific region. Second, the sampling process might not be entirely random, which could introduce bias in the dataset.
+
+> It is important to note that this analysis is based on this specific dataset for the quality of red wine. The findings may not be generalized to all wine quality datasets. Further research and exploration of additional variables and modeling techniques may be necessary to develop a more accurate predictive model for wine quality.
